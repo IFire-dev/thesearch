@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin — Search Logs</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .ip-group { margin-bottom: 24px; }
+    .ip-header { font-size: 15px; font-weight: 600; margin-bottom: 6px; color: #8fa8e0; }
+    .ip-header span { color: #999; font-weight: 400; font-size: 12px; margin-left: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2f2f2f; }
+    #logout { float: right; font-size: 13px; color: #d08f8f; }
+  </style>
+</head>
+<body>
+  <div id="app" style="max-width:900px;">
+    <a id="logout" href="/admin/logout">Log out</a>
+    <h1>Search Logs</h1>
+    <div id="logs">Loading...</div>
+  </div>
+  <script>
+    fetch('/admin/api/searches')
+      .then((r) => r.json())
+      .then(renderGroups)
+      .catch((err) => {
+        document.getElementById('logs').textContent = 'Failed to load logs.';
+        console.error(err);
+      });
+
+    function renderGroups(groups) {
+      const container = document.getElementById('logs');
+      container.innerHTML = '';
+
+      if (!groups.length) {
+        container.textContent = 'No searches logged yet.';
+        return;
+      }
+
+      for (const group of groups) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'ip-group';
+
+        const header = document.createElement('div');
+        header.className = 'ip-header';
+        header.textContent = group.ip;
+        const count = document.createElement('span');
+        count.textContent = `${group.entries.length} search(es), last seen ${new Date(group.lastSeen).toLocaleString()}`;
+        header.appendChild(count);
+        wrapper.appendChild(header);
+
+        const table = document.createElement('table');
+        const thead = document.createElement('tr');
+        thead.innerHTML = '<th>Time</th><th>Query</th>';
+        table.appendChild(thead);
+
+        for (const entry of group.entries) {
+          const row = document.createElement('tr');
+          const timeCell = document.createElement('td');
+          timeCell.textContent = new Date(entry.timestamp).toLocaleString();
+          const queryCell = document.createElement('td');
+          queryCell.textContent = entry.query;
+          row.appendChild(timeCell);
+          row.appendChild(queryCell);
+          table.appendChild(row);
+        }
+
+        wrapper.appendChild(table);
+        container.appendChild(wrapper);
+      }
+    }
+  </script>
+</body>
+</html>

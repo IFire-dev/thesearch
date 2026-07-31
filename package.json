@@ -1,0 +1,24 @@
+{
+  "name": "local-search-engine",
+  "version": "1.0.0",
+  "description": "A self-hosted meta-search engine UI built with Electron",
+  "main": "main.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "electron .",
+    "web": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "node-fetch": "^2.7.0",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.4.5",
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -9,136 +10,111 @@ const { askClaude, askPerplexity } = require('./ai');
 const { logSearch, readSearchesGroupedByIp } = require('./logger');
 const { checkCredentials, requireAdmin } = require('./auth');
 
-// PaaS platforms (Render, Railway, etc.) assign a port via the PORT
-// env var and route their own domain/HTTPS to it — you don't pick 80
-// yourself there. Locally (or on your own VPS) PORT won't be set, so
-// this still defaults to 80 with the 8080 fallback below.
 const PREFERRED_PORT = process.env.PORT || 80;
 const FALLBACK_PORT = 8080;
 
 function startServer() {
-  return new Promise((resolve) => {
-    const webApp = express();
+    return new Promise((resolve) => {
+        const webApp = express();
 
-    // Needed so req.ip reflects the real visitor's address (from the
-    // X-Forwarded-For header) instead of ngrok's, Render's, or a
-    // reverse proxy's own IP. Safe here because you control what's in
-    // front of this server — don't set this to true behind a proxy
-    // you don't trust, since the header can otherwise be spoofed.
-    webApp.set('trust proxy', true);
+        webApp.set('trust proxy', true);
 
-    webApp.use(express.urlencoded({ extended: true })); // for the login form POST
-    webApp.use(session({
-      secret: process.env.SESSION_SECRET || 'change-me-in-.env',
-      resave: false,
-      saveUninitialized: false,
-      // 'auto' marks the cookie secure (HTTPS-only) when the
-      // connection is HTTPS, using the trust proxy setting above to
-      // read that off Render/Railway's forwarded headers.
-      cookie: { maxAge: 24 * 60 * 60 * 1000, secure: 'auto' }
-    }));
+        webApp.use(express.urlencoded({ extended: true }));
+        webApp.use(session({
+            secret: process.env.SESSION_SECRET || 'change-me-in-.env',
+            resave: false,
+            saveUninitialized: false,
+            cookie: { maxAge: 24 * 60 * 60 * 1000, secure: 'auto' }
+        }));
 
-    webApp.use(express.static(path.join(__dirname, 'public')));
+        webApp.use(express.static(path.join(__dirname, 'public')));
 
-    // --- Admin routes ---
-
-    webApp.get('/admin/login', (req, res) => {
-      const template = fs.readFileSync(path.join(__dirname, 'views', 'admin-login.html'), 'utf-8');
-      const errorBlock = req.query.error ? '<p style="color:#d08f8f;">Invalid username or password.</p>' : '';
-      res.send(template.replace('{{ERROR_BLOCK}}', errorBlock));
-    });
-
-    webApp.post('/admin/login', async (req, res) => {
-      const { username, password } = req.body;
-      const ok = await checkCredentials(username, password);
-      if (!ok) return res.redirect('/admin/login?error=1');
-      req.session.isAdmin = true;
-      res.redirect('/admin');
-    });
-
-    webApp.get('/admin/logout', (req, res) => {
-      req.session.destroy(() => res.redirect('/admin/login'));
-    });
-
-    webApp.get('/admin', requireAdmin, (req, res) => {
-      res.sendFile(path.join(__dirname, 'views', 'admin-dashboard.html'));
-    });
-
-    webApp.get('/admin/api/searches', requireAdmin, (req, res) => {
-      res.json(readSearchesGroupedByIp());
-    });
-
-    // --- Search route ---
-
-    // Frontend calls GET /search?q=... and gets back
-    // { web, claude, perplexity }.
-    webApp.get('/search', async (req, res) => {
-      const q = req.query.q;
-      if (!q) return res.json([]);
-
-      logSearch(req.ip, q);
-
-      try {
-        // Run the web scrape and both AI calls at once instead of in
-        // sequence — Promise.allSettled means a failing/unconfigured
-        // AI provider doesn't take down the whole search.
-        const [webResult, claudeResult, perplexityResult] = await Promise.allSettled([
-          searchDuckDuckGo(q),
-          askClaude(q),
-          askPerplexity(q)
-        ]);
-
-        res.json({
-          web: webResult.status === 'fulfilled' ? webResult.value : [],
-          claude: claudeResult.status === 'fulfilled' ? claudeResult.value : { error: claudeResult.reason?.message },
-          perplexity: perplexityResult.status === 'fulfilled' ? perplexityResult.value : { error: perplexityResult.reason?.message }
+        webApp.get('/admin/login', (req, res) => {
+            const template = fs.readFileSync(path.join(__dirname, 'views', 'admin-login.html'), 'utf-8');
+            const errorBlock = req.query.error ? '<p style="color:#d08f8f;">Invalid username or password.</p>' : '';
+            res.send(template.replace('{{ERROR_BLOCK}}', errorBlock));
         });
-      } catch (err) {
-        console.error('Search failed:', err);
-        res.status(500).json({ error: 'Search failed' });
-      }
-    });
 
-    // Port 80 needs root/admin privileges on most systems. If binding
-    // fails (permissions, or something else already on :80), fall
-    // back to :8080 instead of crashing.
-    const server = webApp.listen(PREFERRED_PORT, () => {
-      console.log(`Listening on port ${PREFERRED_PORT}`);
-      resolve(PREFERRED_PORT);
-    });
-
-    server.on('error', (err) => {
-      if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
-        console.warn(`Port ${PREFERRED_PORT} unavailable (${err.code}), falling back to ${FALLBACK_PORT}`);
-        webApp.listen(FALLBACK_PORT, () => {
-          console.log(`Listening on port ${FALLBACK_PORT}`);
-          resolve(FALLBACK_PORT);
+        webApp.post('/admin/login', async (req, res) => {
+            const { username, password } = req.body;
+            const ok = await checkCredentials(username, password);
+            if (!ok) return res.redirect('/admin/login?error=1');
+            req.session.isAdmin = true;
+            res.redirect('/admin');
         });
-      } else {
-        throw err;
-      }
+
+        webApp.get('/admin/logout', (req, res) => {
+            req.session.destroy(() => res.redirect('/admin/login'));
+        });
+
+        webApp.get('/admin', requireAdmin, (req, res) => {
+            res.sendFile(path.join(__dirname, 'views', 'admin-dashboard.html'));
+        });
+
+        webApp.get('/admin/api/searches', requireAdmin, (req, res) => {
+            res.json(readSearchesGroupedByIp());
+        });
+
+        webApp.get('/search', async (req, res) => {
+            const q = req.query.q;
+            if (!q) return res.json([]);
+
+            logSearch(req.ip, q);
+
+            try {
+                const [webResult, claudeResult, perplexityResult] = await Promise.allSettled([
+                    searchDuckDuckGo(q),
+                    askClaude(q),
+                    askPerplexity(q)
+                ]);
+
+                res.json({
+                    web: webResult.status === 'fulfilled' ? webResult.value : [],
+                    claude: claudeResult.status === 'fulfilled' ? claudeResult.value : { error: claudeResult.reason?.message },
+                    perplexity: perplexityResult.status === 'fulfilled' ? perplexityResult.value : { error: perplexityResult.reason?.message }
+                });
+            } catch (err) {
+                console.error('Search failed:', err);
+                res.status(500).json({ error: 'Search failed' });
+            }
+        });
+
+        const server = webApp.listen(PREFERRED_PORT, () => {
+            console.log(`Listening on port ${PREFERRED_PORT}`);
+            resolve(PREFERRED_PORT);
+        });
+
+        server.on('error', (err) => {
+            if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
+                console.warn(`Port ${PREFERRED_PORT} unavailable (${err.code}), falling back to ${FALLBACK_PORT}`);
+                webApp.listen(FALLBACK_PORT, () => {
+                    console.log(`Listening on port ${FALLBACK_PORT}`);
+                    resolve(FALLBACK_PORT);
+                });
+            } else {
+                throw err;
+            }
+        });
     });
-  });
 }
 
-// Scrapes DuckDuckGo's no-JS "lite" HTML interface. This is not an
-// official API — DuckDuckGo could change their markup at any time,
-// which would break the selectors below. There's no API key or
-// rate-limit handling here; heavy use could get your IP temporarily
-// blocked by DuckDuckGo.
 async function searchDuckDuckGo(query) {
     const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
-    const response = await fetch(url, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9'
-        }
-    });
-    const html = await response.text();
 
-    // Temporary diagnostics: shows up in Render's Logs tab. Tells us
-    // whether DDG is returning a normal results page, a block/CAPTCHA
-    // page (short, weird HTML), or something else entirely.
+    let response, html;
+    try {
+        response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9'
+            }
+        });
+        html = await response.text();
+    } catch (err) {
+        console.error('DDG fetch threw before getting a response:', err.message);
+        throw err;
+    }
+
     console.log(`DDG responded ${response.status}, ${html.length} chars`);
     if (html.length < 2000) {
         console.log('Full response (short, likely a block page):', html);
@@ -165,10 +141,6 @@ async function searchDuckDuckGo(query) {
 
 module.exports = { startServer };
 
-// When Electron's main.js requires this file, it calls startServer()
-// itself after the app is ready. When this file is run directly
-// (`node server.js`, which is what Render/Railway will do — there's
-// no Electron window on a server), start immediately instead.
 if (require.main === module) {
-  startServer();
+    startServer();
 }

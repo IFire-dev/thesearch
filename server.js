@@ -127,31 +127,40 @@ function startServer() {
 // rate-limit handling here; heavy use could get your IP temporarily
 // blocked by DuckDuckGo.
 async function searchDuckDuckGo(query) {
-  const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
-  const response = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LocalSearchEngine/1.0)' }
-  });
-  const html = await response.text();
-  const $ = cheerio.load(html);
-  const results = [];
+    const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
+    const response = await fetch(url, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9'
+        }
+    });
+    const html = await response.text();
 
-  $('a.result-link').each((_, el) => {
-    const title = $(el).text().trim();
-    const link = $(el).attr('href');
-
-    // The snippet sits in a sibling row a couple of <tr>s down in
-    // DuckDuckGo lite's table layout. Adjust this if their markup
-    // changes and snippets stop showing up.
-    const row = $(el).closest('tr');
-    const snippetRow = row.next('tr').next('tr');
-    const snippet = snippetRow.text().trim();
-
-    if (title && link) {
-      results.push({ title, url: link, snippet });
+    // Temporary diagnostics: shows up in Render's Logs tab. Tells us
+    // whether DDG is returning a normal results page, a block/CAPTCHA
+    // page (short, weird HTML), or something else entirely.
+    console.log(`DDG responded ${response.status}, ${html.length} chars`);
+    if (html.length < 2000) {
+        console.log('Full response (short, likely a block page):', html);
     }
-  });
 
-  return results;
+    const $ = cheerio.load(html);
+    const results = [];
+
+    $('a.result-link').each((_, el) => {
+        const title = $(el).text().trim();
+        const link = $(el).attr('href');
+
+        const row = $(el).closest('tr');
+        const snippetRow = row.next('tr').next('tr');
+        const snippet = snippetRow.text().trim();
+
+        if (title && link) {
+            results.push({ title, url: link, snippet });
+        }
+    });
+
+    return results;
 }
 
 module.exports = { startServer };

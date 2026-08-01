@@ -3,13 +3,14 @@ const input = document.getElementById('search-input');
 const status = document.getElementById('status');
 const summary = document.getElementById('ai-summary');
 
+// Matches http(s) URLs in plain text for linkifying + preview lookup.
+const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
+
 form.addEventListener('submit', (e) => {
   e.preventDefault();
   performSearch(input.value.trim());
 });
 
-// Lets you jump straight to a search via URL, e.g.
-// http://localhost/?search=your+query
 window.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   const query = params.get('search');
@@ -57,9 +58,6 @@ function renderResponseCard(result) {
     return;
   }
 
-  // Dot color encodes what actually happened, not just that it
-  // succeeded: green = Ultra answered first try, brass = Ultra
-  // answered after retrying, orange = had to fall back to Nano.
   let dotColor = 'var(--success)';
   let note = 'first try';
   if (result.fellBack) {
@@ -107,8 +105,98 @@ function renderResponseCard(result) {
 
   const body = document.createElement('p');
   body.className = 'response-body';
-  body.textContent = result.answer;
+  body.appendChild(linkifyText(result.answer || ''));
   card.appendChild(body);
 
   summary.appendChild(card);
+
+  const urls = [...new Set((result.answer || '').match(URL_PATTERN) || [])];
+  if (urls.length > 0) {
+    renderLinkPreviews(urls);
+  }
+}
+
+// Turns plain-text URLs into clickable <a> tags, leaving the rest of
+// the text untouched. Returns a DocumentFragment so callers can just
+// append it — avoids building HTML strings from model output.
+function linkifyText(text) {
+  const fragment = document.createDocumentFragment();
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const url = match[0];
+    const start = match.index;
+
+    if (start > lastIndex) {
+      fragment.appendChild(document.createTextNode(text.slice(lastIndex, start)));
+    }
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.className = 'answer-link';
+    a.textContent = url;
+    fragment.appendChild(a);
+
+    lastIndex = start + url.length;
+  }
+
+  if (lastIndex < text.length) {
+    fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+  }
+
+  return fragment;
+}
+
+async function renderLinkPreviews(urls) {
+  const list = document.createElement('div');
+  list.className = 'link-previews';
+  summary.appendChild(list);
+
+  const results = await Promise.allSettled(
+    urls.map((url) => fetch(`/preview?url=${encodeURIComponent(url)}`).then((r) => r.json()))
+  );
+
+  for (const result of results) {
+    if (result.status !== 'fulfilled' || result.value.error) continue;
+    list.appendChild(renderLinkPreviewCard(result.value));
+  }
+}
+
+function renderLinkPreviewCard(preview) {
+  const card = document.createElement('a');
+  card.className = 'link-preview-card';
+  card.href = preview.url;
+  card.target = '_blank';
+  card.rel = 'noopener noreferrer';
+
+  if (preview.image) {
+    const img = document.createElement('img');
+    img.className = 'link-preview-image';
+    img.src = preview.image;
+    img.alt = '';
+    img.loading = 'lazy';
+    card.appendChild(img);
+  }
+
+  const text = document.createElement('div');
+  text.className = 'link-preview-text';
+
+  const title = document.createElement('div');
+  title.className = 'link-preview-title';
+  title.textContent = preview.title || preview.url;
+  text.appendChild(title);
+
+  const domain = document.createElement('div');
+  domain.className = 'link-preview-domain';
+  try {
+    domain.textContent = new URL(preview.url).hostname;
+  } catch {
+    domain.textContent = preview.url;
+  }
+  text.appendChild(domain);
+
+  card.appendChild(text);
+  return card;
 }

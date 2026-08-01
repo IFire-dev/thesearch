@@ -4,13 +4,10 @@ const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const { askNvidiaPrimary } = require('./ai');
+const { fetchLinkPreview } = require('./linkPreview');
 const { logSearch, readSearchesGroupedByIp } = require('./logger');
 const { checkCredentials, requireAdmin } = require('./auth');
 
-// PaaS platforms (Render, Railway, etc.) assign a port via the PORT
-// env var and route their own domain/HTTPS to it — you don't pick 80
-// yourself there. Locally (or on your own VPS) PORT won't be set, so
-// this still defaults to 80 with the 8080 fallback below.
 const PREFERRED_PORT = process.env.PORT || 80;
 const FALLBACK_PORT = 8080;
 
@@ -18,27 +15,17 @@ function startServer() {
   return new Promise((resolve) => {
     const webApp = express();
 
-    // Needed so req.ip reflects the real visitor's address (from the
-    // X-Forwarded-For header) instead of ngrok's, Render's, or a
-    // reverse proxy's own IP. Safe here because you control what's in
-    // front of this server — don't set this to true behind a proxy
-    // you don't trust, since the header can otherwise be spoofed.
     webApp.set('trust proxy', true);
 
-    webApp.use(express.urlencoded({ extended: true })); // for the login form POST
+    webApp.use(express.urlencoded({ extended: true }));
     webApp.use(session({
       secret: process.env.SESSION_SECRET || 'change-me-in-.env',
       resave: false,
       saveUninitialized: false,
-      // 'auto' marks the cookie secure (HTTPS-only) when the
-      // connection is HTTPS, using the trust proxy setting above to
-      // read that off Render/Railway's forwarded headers.
       cookie: { maxAge: 24 * 60 * 60 * 1000, secure: 'auto' }
     }));
 
     webApp.use(express.static(path.join(__dirname, 'public')));
-
-    // --- Admin routes ---
 
     webApp.get('/admin/login', (req, res) => {
       const template = fs.readFileSync(path.join(__dirname, 'views', 'admin-login.html'), 'utf-8');
@@ -66,12 +53,9 @@ function startServer() {
       res.json(readSearchesGroupedByIp());
     });
 
-    // --- Search route ---
-
     // Frontend calls GET /search?q=... and gets back a single result:
     // Nemotron 3 Ultra, retried up to 10 times, falling back to Nano
-    // if Ultra's free capacity stays maxed out. (Perplexity and
-    // DuckDuckGo scraping were both dropped earlier — see README.)
+    // if Ultra's free capacity stays maxed out.
     webApp.get('/search', async (req, res) => {
       const q = req.query.q;
       if (!q) return res.json({});
@@ -87,9 +71,15 @@ function startServer() {
       }
     });
 
-    // Port 80 needs root/admin privileges on most systems. If binding
-    // fails (permissions, or something else already on :80), fall
-    // back to :8080 instead of crashing.
+    // Frontend calls this once per URL it finds in the answer text,
+    // to render a preview card (title/description/thumbnail).
+    webApp.get('/preview', async (req, res) => {
+      const url = req.query.url;
+      if (!url) return res.status(400).json({ error: 'missing url' });
+      const preview = await fetchLinkPreview(url);
+      res.json(preview);
+    });
+
     const server = webApp.listen(PREFERRED_PORT, () => {
       console.log(`Listening on port ${PREFERRED_PORT}`);
       resolve(PREFERRED_PORT);
@@ -111,10 +101,6 @@ function startServer() {
 
 module.exports = { startServer };
 
-// When Electron's main.js requires this file, it calls startServer()
-// itself after the app is ready. When this file is run directly
-// (`node server.js`, which is what Render/Railway will do — there's
-// no Electron window on a server), start immediately instead.
 if (require.main === module) {
   startServer();
 }

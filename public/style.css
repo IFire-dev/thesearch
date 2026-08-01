@@ -165,6 +165,7 @@ button:focus-visible,
   border-left: 3px solid var(--dot-color, var(--text-dim));
   border-radius: 8px;
   overflow: hidden;
+  margin-bottom: 14px;
 }
 
 .response-card.is-error {
@@ -206,12 +207,71 @@ button:focus-visible,
   font-size: 15px;
   line-height: 1.6;
   margin: 0;
+  white-space: pre-wrap;
 }
 
 .response-card.is-error .response-body {
   color: var(--error);
   font-family: var(--mono);
   font-size: 13px;
+}
+
+.answer-link {
+  color: var(--accent);
+  word-break: break-all;
+}
+
+/* --- Link preview cards --- */
+
+.link-previews {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.link-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+
+.link-preview-card:hover {
+  border-color: var(--accent);
+}
+
+.link-preview-image {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--panel-border);
+}
+
+.link-preview-text {
+  min-width: 0;
+}
+
+.link-preview-title {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.link-preview-domain {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
 }
 
 @media (max-width: 480px) {

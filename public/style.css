@@ -48,12 +48,6 @@ button:hover { background: #2f5bd6; }
   margin-bottom: 12px;
 }
 
-#results {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
 #ai-summary {
   margin-bottom: 24px;
 }
@@ -102,30 +96,4 @@ button:hover { background: #2f5bd6; }
 
 .ai-citations a {
   color: #6b8f4e;
-}
-
-.result {
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #2f2f2f;
-}
-
-.result a {
-  color: #7aa2f7;
-  font-size: 16px;
-  text-decoration: none;
-}
-
-.result a:hover { text-decoration: underline; }
-
-.result-url {
-  color: #6b8f4e;
-  font-size: 12px;
-  margin: 2px 0 6px;
-}
-
-.result-snippet {
-  color: #ccc;
-  font-size: 14px;
-  margin: 0;
 }

@@ -2,7 +2,6 @@ const form = document.getElementById('search-form');
 const input = document.getElementById('search-input');
 const status = document.getElementById('status');
 const summary = document.getElementById('ai-summary');
-const resultsList = document.getElementById('results');
 
 form.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -24,7 +23,6 @@ window.addEventListener('DOMContentLoaded', () => {
 async function performSearch(query) {
   if (!query) return;
 
-  resultsList.innerHTML = '';
   summary.innerHTML = '';
   status.textContent = 'Searching...';
 
@@ -32,29 +30,19 @@ async function performSearch(query) {
     const res = await fetch(`/search?q=${encodeURIComponent(query)}`);
     const data = await res.json();
 
-    renderSummaryPanel(data.claude, data.perplexity);
-
-    const webResults = data.web || [];
-    if (webResults.length === 0) {
-      status.textContent = 'No web results.';
-      return;
-    }
-
     status.textContent = '';
-    for (const result of webResults) {
-      resultsList.appendChild(renderResult(result));
-    }
+    renderSummaryPanel(data.nvidia, data.perplexity);
   } catch (err) {
     status.textContent = 'Something went wrong — check the console.';
     console.error(err);
   }
 }
 
-function renderSummaryPanel(claude, perplexity) {
+function renderSummaryPanel(nvidia, perplexity) {
   summary.innerHTML = '';
-  if (!claude && !perplexity) return;
+  if (!nvidia && !perplexity) return;
 
-  if (claude) summary.appendChild(renderAiBlock('Claude', claude, null));
+  if (nvidia) summary.appendChild(renderAiBlock('NVIDIA (Nemotron 3 Ultra)', nvidia, null));
   if (perplexity) summary.appendChild(renderAiBlock('Perplexity', perplexity, perplexity.citations));
 }
 
@@ -89,28 +77,4 @@ function renderAiBlock(source, result, citations) {
   }
 
   return block;
-}
-
-function renderResult({ title, url, snippet }) {
-  const li = document.createElement('li');
-  li.className = 'result';
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.target = '_blank';
-  link.rel = 'noopener noreferrer';
-  link.textContent = title;
-
-  const urlLine = document.createElement('div');
-  urlLine.className = 'result-url';
-  urlLine.textContent = url;
-
-  const snippetLine = document.createElement('p');
-  snippetLine.className = 'result-snippet';
-  snippetLine.textContent = snippet;
-
-  li.appendChild(link);
-  li.appendChild(urlLine);
-  li.appendChild(snippetLine);
-  return li;
 }

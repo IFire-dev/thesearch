@@ -1,7 +1,13 @@
 # Local Search Engine
 
-A minimal self-hosted meta-search engine: an Electron app that runs
-a local Express server and scrapes DuckDuckGo Lite's HTML results.
+A self-hosted search UI: an Electron app (or headless server, for
+online deployment) that shows NVIDIA's Nemotron 3 Ultra and
+Perplexity's answers to your query side by side. Perplexity does its
+own live web search with citations; NVIDIA's model (free via
+build.nvidia.com) answers from its own knowledge. (An earlier version
+scraped DuckDuckGo directly, but that gets network-blocked from cloud
+hosts like Render, so it's been dropped in favor of Perplexity, which
+already does real web search reliably via API.)
 
 ## Setup
 
@@ -21,17 +27,17 @@ opens a window pointed at it.
 
 ## Getting API keys
 
-Both Claude and Perplexity now show a short AI-generated summary
-above the web results — Claude answers from its own knowledge,
-Perplexity does its own live web search and returns citations.
+NVIDIA and Perplexity each show a short AI-generated answer.
 Both are optional: if a key is missing, that panel just shows
 "Not available" instead of breaking the search.
 
-**Claude (Anthropic):**
-1. Go to https://console.anthropic.com and sign in or create an account.
-2. Add a payment method / credits under Billing.
-3. Go to Settings > API Keys, create a new key.
-4. Paste it into `.env` as `ANTHROPIC_API_KEY`.
+**NVIDIA (free):**
+1. Go to https://build.nvidia.com and sign in or create a free account.
+2. Open any model card (e.g. Nemotron 3 Ultra) and click **Get API Key**.
+3. Copy the key (starts with `nvapi-`) — it's only shown once.
+4. Paste it into `.env` as `NVIDIA_API_KEY`.
+   This is free, no payment method required, with a recurring free
+   request allowance — no need to worry about cost here.
 
 **Perplexity:**
 1. Go to https://perplexity.ai and create an account.
@@ -41,9 +47,10 @@ Both are optional: if a key is missing, that panel just shows
 3. Generate a key in the API Keys tab.
 4. Paste it into `.env` as `PERPLEXITY_API_KEY`.
 
-Both APIs are pay-as-you-go (roughly $1–3 per million tokens on the
-cheaper models) — a handful of test searches costs a fraction of a
-cent, but keep an eye on usage if you leave this running.
+Perplexity is pay-as-you-go (roughly $1 per million tokens on Sonar,
+plus a small per-request search fee) — a handful of test searches
+costs a fraction of a cent, but keep an eye on usage if you leave
+this running. NVIDIA's side is free.
 
 ## Port 80
 
@@ -109,7 +116,7 @@ Express server headlessly (no window), which is what you'll deploy.
    `node_modules`, `.env`, and `logs/` — never commit `.env`).
 2. On https://render.com, create a **Web Service**, connect the repo.
 3. Build command: `npm install`. Start command: `npm run web`.
-4. Add your env vars (`ANTHROPIC_API_KEY`, `PERPLEXITY_API_KEY`,
+4. Add your env vars (`NVIDIA_API_KEY`, `PERPLEXITY_API_KEY`,
    `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `SESSION_SECRET`) under
    the service's **Environment** tab in the dashboard — not as a
    committed `.env` file. Don't set `PORT`; Render sets that itself.
@@ -133,11 +140,10 @@ commit to it (current as of mid-2026):
 ## How it works
 
 - `main.js` — Electron entry point, opens the window.
-- `server.js` — Express server. `/search?q=...` runs the DuckDuckGo
-  scrape and both AI calls in parallel and returns them together as
-  `{ web, claude, perplexity }`. Also logs each search and hosts the
-  admin routes.
-- `ai.js` — Claude and Perplexity API clients.
+- `server.js` — Express server. `/search?q=...` runs both AI calls in
+  parallel and returns them together as `{ nvidia, perplexity }`.
+  Also logs each search and hosts the admin routes.
+- `ai.js` — NVIDIA (Nemotron 3 Ultra) and Perplexity API clients.
 - `logger.js` — writes/reads the search log (`logs/searches.jsonl`).
 - `auth.js` — admin login check and route guard.
 - `views/` — admin login + dashboard pages (not served as static files,
@@ -147,11 +153,11 @@ commit to it (current as of mid-2026):
 
 ## Limitations
 
-- Only one backend (DuckDuckGo Lite) is wired up. It's scraped HTML,
-  not an official API — there's no key, no rate-limit handling, and
-  DuckDuckGo could change their markup at any time, which would break
-  the `cheerio` selectors in `server.js`.
-- No caching, pagination, images, or other engines. This is a
-  starting point, not a SearxNG replacement — SearxNG (150+ engines,
-  maintained, more robust) is the better option if you just want a
-  working meta-search engine rather than a project to build on.
+- No plain web-results list (title/link/snippet) anymore — just the
+  two AI-generated answer panels. Re-adding a real web search backend
+  would mean either a paid search API (Brave Search, Bing) or
+  self-hosting something like SearxNG, since direct scraping (the
+  original approach here) gets network-blocked from cloud hosts.
+- Nemotron 3 Ultra answers from its training data, not live search —
+  Perplexity is the only panel with actual up-to-date web results and
+  citations.

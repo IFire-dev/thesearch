@@ -24,29 +24,31 @@ async function performSearch(query) {
   if (!query) return;
 
   summary.innerHTML = '';
-  status.textContent = 'Searching...';
+  // The primary panel retries up to 10 times if NVIDIA's big model is
+  // busy, so this can take a while longer than a normal search.
+  status.textContent = 'Searching... (can take up to ~15s if the big model is busy)';
 
   try {
     const res = await fetch(`/search?q=${encodeURIComponent(query)}`);
     const data = await res.json();
 
     status.textContent = '';
-    renderSummaryPanel(data.nvidia, data.perplexity);
+    renderSummaryPanel(data.primary, data.secondary);
   } catch (err) {
     status.textContent = 'Something went wrong — check the console.';
     console.error(err);
   }
 }
 
-function renderSummaryPanel(nvidia, perplexity) {
+function renderSummaryPanel(primary, secondary) {
   summary.innerHTML = '';
-  if (!nvidia && !perplexity) return;
+  if (!primary && !secondary) return;
 
-  if (nvidia) summary.appendChild(renderAiBlock('NVIDIA (Nemotron 3 Ultra)', nvidia, null));
-  if (perplexity) summary.appendChild(renderAiBlock('Perplexity', perplexity, perplexity.citations));
+  if (primary) summary.appendChild(renderAiBlock(primary.model || 'NVIDIA', primary));
+  if (secondary) summary.appendChild(renderAiBlock(secondary.model || 'NVIDIA', secondary));
 }
 
-function renderAiBlock(source, result, citations) {
+function renderAiBlock(source, result) {
   const block = document.createElement('div');
   block.className = 'ai-block';
   if (result.error) block.classList.add('ai-error');
@@ -59,22 +61,6 @@ function renderAiBlock(source, result, citations) {
   const text = document.createElement('p');
   text.textContent = result.error ? `Not available: ${result.error}` : result.answer;
   block.appendChild(text);
-
-  if (citations && citations.length > 0) {
-    const citeList = document.createElement('ul');
-    citeList.className = 'ai-citations';
-    for (const url of citations) {
-      const li = document.createElement('li');
-      const a = document.createElement('a');
-      a.href = url;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.textContent = url;
-      li.appendChild(a);
-      citeList.appendChild(li);
-    }
-    block.appendChild(citeList);
-  }
 
   return block;
 }

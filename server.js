@@ -3,7 +3,7 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
-const { askNvidia, askPerplexity } = require('./ai');
+const { askNvidiaPrimary, askNvidiaSecondary } = require('./ai');
 const { logSearch, readSearchesGroupedByIp } = require('./logger');
 const { checkCredentials, requireAdmin } = require('./auth');
 
@@ -68,9 +68,12 @@ function startServer() {
 
     // --- Search route ---
 
-    // Frontend calls GET /search?q=... and gets back { nvidia, perplexity }.
-    // (DuckDuckGo scraping was dropped: cloud host IPs like Render's get
-    // network-level blocked by DDG, so it never worked reliably there.)
+    // Frontend calls GET /search?q=... and gets back { primary, secondary }.
+    // Both panels are NVIDIA now: primary retries Nemotron 3 Ultra (with
+    // a Nano fallback if Ultra's free capacity is maxed out), secondary
+    // is always Nano — this replaced Perplexity to avoid needing a paid
+    // key. (DuckDuckGo scraping was dropped earlier too: cloud host IPs
+    // like Render's get network-level blocked by DDG.)
     webApp.get('/search', async (req, res) => {
       const q = req.query.q;
       if (!q) return res.json({});
@@ -78,14 +81,14 @@ function startServer() {
       logSearch(req.ip, q);
 
       try {
-        const [nvidiaResult, perplexityResult] = await Promise.allSettled([
-          askNvidia(q),
-          askPerplexity(q)
+        const [primaryResult, secondaryResult] = await Promise.allSettled([
+          askNvidiaPrimary(q),
+          askNvidiaSecondary(q)
         ]);
 
         res.json({
-          nvidia: nvidiaResult.status === 'fulfilled' ? nvidiaResult.value : { error: nvidiaResult.reason?.message },
-          perplexity: perplexityResult.status === 'fulfilled' ? perplexityResult.value : { error: perplexityResult.reason?.message }
+          primary: primaryResult.status === 'fulfilled' ? primaryResult.value : { error: primaryResult.reason?.message },
+          secondary: secondaryResult.status === 'fulfilled' ? secondaryResult.value : { error: secondaryResult.reason?.message }
         });
       } catch (err) {
         console.error('Search failed:', err);

@@ -83,17 +83,3 @@ button:hover { background: #2f5bd6; }
   font-size: 14px;
   line-height: 1.5;
 }
-
-.ai-citations {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0 0;
-}
-
-.ai-citations li {
-  font-size: 12px;
-}
-
-.ai-citations a {
-  color: #6b8f4e;
-}

@@ -1,13 +1,13 @@
 # Local Search Engine
 
 A self-hosted search UI: an Electron app (or headless server, for
-online deployment) that shows NVIDIA's Nemotron 3 Ultra and
-Perplexity's answers to your query side by side. Perplexity does its
-own live web search with citations; NVIDIA's model (free via
-build.nvidia.com) answers from its own knowledge. (An earlier version
-scraped DuckDuckGo directly, but that gets network-blocked from cloud
-hosts like Render, so it's been dropped in favor of Perplexity, which
-already does real web search reliably via API.)
+online deployment) that answers your query with NVIDIA's Nemotron 3
+Ultra (free via build.nvidia.com), retrying automatically if the
+shared free endpoint is busy and falling back to the smaller
+Nemotron 3 Nano model if Ultra never comes through. (Earlier versions
+tried DuckDuckGo scraping and Perplexity, but scraping gets
+network-blocked from cloud hosts like Render, and Perplexity needs a
+paid key — this version is fully free.)
 
 ## Setup
 
@@ -16,7 +16,7 @@ npm install
 cp .env.example .env
 ```
 
-Then fill in `.env` with your API keys (see below), and:
+Then fill in `.env` with your NVIDIA key (see below), and:
 
 ```
 npm start
@@ -25,32 +25,16 @@ npm start
 `npm start` launches Electron, which starts the Express server and
 opens a window pointed at it.
 
-## Getting API keys
+## Getting an API key (free)
 
-NVIDIA and Perplexity each show a short AI-generated answer.
-Both are optional: if a key is missing, that panel just shows
-"Not available" instead of breaking the search.
-
-**NVIDIA (free):**
 1. Go to https://build.nvidia.com and sign in or create a free account.
 2. Open any model card (e.g. Nemotron 3 Ultra) and click **Get API Key**.
 3. Copy the key (starts with `nvapi-`) — it's only shown once.
 4. Paste it into `.env` as `NVIDIA_API_KEY`.
-   This is free, no payment method required, with a recurring free
-   request allowance — no need to worry about cost here.
 
-**Perplexity:**
-1. Go to https://perplexity.ai and create an account.
-2. Open the API section of your account settings, add a payment method
-   and purchase credits — there's no free tier, and no key is issued
-   until a payment method is on file.
-3. Generate a key in the API Keys tab.
-4. Paste it into `.env` as `PERPLEXITY_API_KEY`.
-
-Perplexity is pay-as-you-go (roughly $1 per million tokens on Sonar,
-plus a small per-request search fee) — a handful of test searches
-costs a fraction of a cent, but keep an eye on usage if you leave
-this running. NVIDIA's side is free.
+No payment method required — there's a recurring free request
+allowance. If a key is missing, the response card just shows
+"not available" instead of breaking the search.
 
 ## Port 80
 
@@ -81,21 +65,15 @@ http://localhost/admin
    `openssl rand -hex 32`) — this signs the login session cookie.
 5. Restart the server, log in at `/admin/login`.
 
-**Important — you mentioned using ngrok:**
-Once ngrok is pointed at this server, `/admin` is reachable by
-anyone who finds or guesses the ngrok URL, not just you. A few things
-that matter as a result:
+**Important — if you're exposing this publicly (ngrok, Render, etc.):**
+Anyone who finds the URL can reach `/admin`, not just you. A few
+things that matter as a result:
 - Use a genuinely strong, unique password — this isn't a hardened
   auth system (single hardcoded admin account, no rate-limiting on
   login attempts, no 2FA).
 - The search log will contain the real IP addresses of everyone who
-  uses the search engine through the ngrok URL, not just you. If
-  anyone besides you might use that link, that's personal data about
-  them you're collecting — worth keeping that in mind for who you
-  share the URL with.
-- Consider layering ngrok's own access control on top (e.g. an ngrok
-  edge with OAuth or IP restrictions, on paid plans) rather than
-  relying solely on this app's login.
+  uses the search engine, not just you — worth keeping in mind before
+  sharing the link.
 
 ## URL shortcut
 
@@ -116,10 +94,10 @@ Express server headlessly (no window), which is what you'll deploy.
    `node_modules`, `.env`, and `logs/` — never commit `.env`).
 2. On https://render.com, create a **Web Service**, connect the repo.
 3. Build command: `npm install`. Start command: `npm run web`.
-4. Add your env vars (`NVIDIA_API_KEY`, `PERPLEXITY_API_KEY`,
-   `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `SESSION_SECRET`) under
-   the service's **Environment** tab in the dashboard — not as a
-   committed `.env` file. Don't set `PORT`; Render sets that itself.
+4. Add `NVIDIA_API_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, and
+   `SESSION_SECRET` under the service's **Environment** tab in the
+   dashboard — not as a committed `.env` file. Don't set `PORT`;
+   Render sets that itself.
 5. Render gives you an HTTPS URL like `your-app.onrender.com` — no
    ngrok, no port 80 to worry about, no PC needed.
 
@@ -127,37 +105,36 @@ Two real limitations of Render's free tier worth knowing before you
 commit to it (current as of mid-2026):
 - **Cold starts**: free web services spin down after 15 minutes with
   no traffic and take roughly 30–60 seconds to wake back up on the
-  next request. Fine for personal use, noticeable if you send someone
-  a link and they hit that spin-up delay.
-- **No persistent disk on the free tier**: `logs/searches.jsonl`
-  lives on the container's local disk, which is wiped on every
-  restart/redeploy (including the spin-down/wake cycle above) —
-  so your search log won't reliably accumulate over time. Render's
-  paid Starter tier ($7/mo) adds persistent disks if you want the
-  log to actually persist; otherwise treat it as a rolling log that
-  resets periodically.
+  next request.
+- **No persistent disk on the free tier**: `logs/searches.jsonl` is
+  wiped on every restart/redeploy — treat it as a rolling log, not
+  permanent storage. Render's paid Starter tier ($7/mo) adds
+  persistent disks if you want it to actually accumulate.
 
 ## How it works
 
 - `main.js` — Electron entry point, opens the window.
-- `server.js` — Express server. `/search?q=...` runs both AI calls in
-  parallel and returns them together as `{ nvidia, perplexity }`.
-  Also logs each search and hosts the admin routes.
-- `ai.js` — NVIDIA (Nemotron 3 Ultra) and Perplexity API clients.
+- `server.js` — Express server. `/search?q=...` calls Nemotron 3
+  Ultra (with retry + Nano fallback) and returns one result. Also
+  logs each search and hosts the admin routes.
+- `ai.js` — the NVIDIA API client: retry logic, fallback, and the
+  timing/attempt telemetry the UI displays.
 - `logger.js` — writes/reads the search log (`logs/searches.jsonl`).
 - `auth.js` — admin login check and route guard.
 - `views/` — admin login + dashboard pages (not served as static files,
   so they're only reachable through the authenticated routes).
 - `scripts/generate-admin-hash.js` — CLI helper to hash your admin password.
-- `public/` — the frontend (plain HTML/CSS/JS, no framework).
+- `public/` — the frontend (plain HTML/CSS/JS, no framework). The
+  response card's border/dot color reflects what actually happened
+  (answered first try / answered after retrying / fell back to Nano),
+  driven by real data from the server, not decoration.
 
 ## Limitations
 
-- No plain web-results list (title/link/snippet) anymore — just the
-  two AI-generated answer panels. Re-adding a real web search backend
-  would mean either a paid search API (Brave Search, Bing) or
-  self-hosting something like SearxNG, since direct scraping (the
-  original approach here) gets network-blocked from cloud hosts.
-- Nemotron 3 Ultra answers from its training data, not live search —
-  Perplexity is the only panel with actual up-to-date web results and
-  citations.
+- One model family, one provider. No live web search — Nemotron 3
+  answers from its training data, not real-time results. Re-adding
+  actual web search would mean a paid search API (Brave Search, Bing)
+  or self-hosting something like SearxNG.
+- Nemotron 3 Ultra's free shared capacity is limited (it's a 550B
+  model on NVIDIA's demo endpoint), so expect the retry path — and
+  occasional Nano fallback — to kick in during busy periods.

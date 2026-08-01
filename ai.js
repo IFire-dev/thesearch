@@ -54,17 +54,27 @@ async function callNvidiaModel(model, query) {
 // errors are common and usually transient — worth retrying a few
 // times before giving up). Falls back to Nemotron 3 Nano — a much
 // smaller model with far more free capacity — if Ultra never comes
-// through.
+// through. Reports timing/attempt info so the UI can show real
+// status rather than a generic spinner.
 async function askNvidiaPrimary(query) {
   if (!NVIDIA_API_KEY) {
     return { error: 'NVIDIA_API_KEY not set in .env' };
   }
 
+  const startedAt = Date.now();
   let lastError;
+
   for (let attempt = 1; attempt <= MAX_ULTRA_ATTEMPTS; attempt++) {
     const result = await callNvidiaModel(ULTRA_MODEL, query);
     if (result.ok) {
-      return { answer: result.answer, model: 'Nemotron 3 Ultra' };
+      return {
+        answer: result.answer,
+        model: 'nemotron-3-ultra-550b-a55b',
+        attempts: attempt,
+        maxAttempts: MAX_ULTRA_ATTEMPTS,
+        fellBack: false,
+        elapsedMs: Date.now() - startedAt
+      };
     }
     lastError = result.error;
     if (attempt < MAX_ULTRA_ATTEMPTS) await sleep(RETRY_DELAY_MS);
@@ -73,24 +83,17 @@ async function askNvidiaPrimary(query) {
   // Ultra never succeeded — fall back to the smaller model.
   const fallback = await callNvidiaModel(NANO_MODEL, query);
   if (fallback.ok) {
-    return { answer: fallback.answer, model: 'Nemotron 3 Nano — fallback, Ultra was busy' };
+    return {
+      answer: fallback.answer,
+      model: 'nemotron-3-nano-30b-a3b',
+      attempts: MAX_ULTRA_ATTEMPTS,
+      maxAttempts: MAX_ULTRA_ATTEMPTS,
+      fellBack: true,
+      elapsedMs: Date.now() - startedAt
+    };
   }
+
   return { error: `Ultra failed after ${MAX_ULTRA_ATTEMPTS} attempts (${lastError}); Nano fallback also failed (${fallback.error})` };
 }
 
-// Independent second panel — always Nemotron 3 Nano, replacing what
-// used to be the Perplexity call. Runs regardless of how the Ultra
-// call above goes.
-async function askNvidiaSecondary(query) {
-  if (!NVIDIA_API_KEY) {
-    return { error: 'NVIDIA_API_KEY not set in .env' };
-  }
-
-  const result = await callNvidiaModel(NANO_MODEL, query);
-  if (result.ok) {
-    return { answer: result.answer, model: 'Nemotron 3 Nano' };
-  }
-  return { error: result.error };
-}
-
-module.exports = { askNvidiaPrimary, askNvidiaSecondary };
+module.exports = { askNvidiaPrimary };

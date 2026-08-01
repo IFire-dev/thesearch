@@ -2,17 +2,42 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local Search</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
-    <h1>Local Search</h1>
-    <form id="search-form">
-      <input id="search-input" type="text" placeholder="Search the web..." autofocus autocomplete="off">
-      <button type="submit">Search</button>
+    <header class="masthead">
+      <svg class="chip-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="8" y="8" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="13" y="13" width="6" height="6" fill="currentColor"/>
+        <line x1="8" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2"/>
+        <line x1="8" y1="20" x2="3" y2="20" stroke="currentColor" stroke-width="2"/>
+        <line x1="24" y1="12" x2="29" y2="12" stroke="currentColor" stroke-width="2"/>
+        <line x1="24" y1="20" x2="29" y2="20" stroke="currentColor" stroke-width="2"/>
+        <line x1="12" y1="8" x2="12" y2="3" stroke="currentColor" stroke-width="2"/>
+        <line x1="20" y1="8" x2="20" y2="3" stroke="currentColor" stroke-width="2"/>
+        <line x1="12" y1="24" x2="12" y2="29" stroke="currentColor" stroke-width="2"/>
+        <line x1="20" y1="24" x2="20" y2="29" stroke="currentColor" stroke-width="2"/>
+      </svg>
+      <div class="masthead-text">
+        <h1>local search</h1>
+        <p class="tagline">a personal inference terminal &middot; runs on your own NVIDIA key</p>
+      </div>
+    </header>
+
+    <form id="search-form" class="prompt-row">
+      <span class="prompt-caret" aria-hidden="true">&gt;</span>
+      <input id="search-input" type="text" placeholder="ask something" autofocus autocomplete="off">
+      <button type="submit">run</button>
     </form>
-    <div id="status"></div>
+
+    <p id="status" class="status-line" role="status" aria-live="polite"></p>
+
     <div id="ai-summary"></div>
   </div>
   <script src="app.js"></script>

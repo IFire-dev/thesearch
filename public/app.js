@@ -10,7 +10,6 @@ form.addEventListener('submit', (e) => {
 
 // Lets you jump straight to a search via URL, e.g.
 // http://localhost/?search=your+query
-// Runs once when the page first loads.
 window.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   const query = params.get('search');
@@ -24,43 +23,92 @@ async function performSearch(query) {
   if (!query) return;
 
   summary.innerHTML = '';
-  // The primary panel retries up to 10 times if NVIDIA's big model is
-  // busy, so this can take a while longer than a normal search.
-  status.textContent = 'Searching... (can take up to ~15s if the big model is busy)';
+  status.textContent = 'awaiting response';
+  status.classList.add('pending');
 
   try {
     const res = await fetch(`/search?q=${encodeURIComponent(query)}`);
     const data = await res.json();
 
     status.textContent = '';
-    renderSummaryPanel(data.primary, data.secondary);
+    status.classList.remove('pending');
+    renderResponseCard(data);
   } catch (err) {
-    status.textContent = 'Something went wrong — check the console.';
+    status.textContent = '';
+    status.classList.remove('pending');
+    renderResponseCard({ error: 'Request failed — check the browser console.' });
     console.error(err);
   }
 }
 
-function renderSummaryPanel(primary, secondary) {
+function renderResponseCard(result) {
   summary.innerHTML = '';
-  if (!primary && !secondary) return;
 
-  if (primary) summary.appendChild(renderAiBlock(primary.model || 'NVIDIA', primary));
-  if (secondary) summary.appendChild(renderAiBlock(secondary.model || 'NVIDIA', secondary));
-}
+  const card = document.createElement('div');
+  card.className = 'response-card';
 
-function renderAiBlock(source, result) {
-  const block = document.createElement('div');
-  block.className = 'ai-block';
-  if (result.error) block.classList.add('ai-error');
+  if (result.error) {
+    card.classList.add('is-error');
+    const body = document.createElement('p');
+    body.className = 'response-body';
+    body.textContent = `not available — ${result.error}`;
+    card.appendChild(body);
+    summary.appendChild(card);
+    return;
+  }
 
-  const label = document.createElement('div');
-  label.className = 'ai-source';
-  label.textContent = source;
-  block.appendChild(label);
+  // Dot color encodes what actually happened, not just that it
+  // succeeded: green = Ultra answered first try, brass = Ultra
+  // answered after retrying, orange = had to fall back to Nano.
+  let dotColor = 'var(--success)';
+  let note = 'first try';
+  if (result.fellBack) {
+    dotColor = 'var(--fallback)';
+    note = `fell back after ${result.maxAttempts}/${result.maxAttempts} Ultra attempts`;
+  } else if (result.attempts > 1) {
+    dotColor = 'var(--warn)';
+    note = `succeeded on attempt ${result.attempts}/${result.maxAttempts}`;
+  }
+  card.style.setProperty('--dot-color', dotColor);
 
-  const text = document.createElement('p');
-  text.textContent = result.error ? `Not available: ${result.error}` : result.answer;
-  block.appendChild(text);
+  const telemetry = document.createElement('div');
+  telemetry.className = 'telemetry';
 
-  return block;
+  const dot = document.createElement('span');
+  dot.className = 'telemetry-dot';
+  telemetry.appendChild(dot);
+
+  const model = document.createElement('span');
+  model.className = 'telemetry-model';
+  model.textContent = result.model || 'nvidia';
+  telemetry.appendChild(model);
+
+  const sep1 = document.createElement('span');
+  sep1.className = 'telemetry-sep';
+  sep1.textContent = '·';
+  telemetry.appendChild(sep1);
+
+  const noteSpan = document.createElement('span');
+  noteSpan.textContent = note;
+  telemetry.appendChild(noteSpan);
+
+  if (typeof result.elapsedMs === 'number') {
+    const sep2 = document.createElement('span');
+    sep2.className = 'telemetry-sep';
+    sep2.textContent = '·';
+    telemetry.appendChild(sep2);
+
+    const timing = document.createElement('span');
+    timing.textContent = `${(result.elapsedMs / 1000).toFixed(1)}s`;
+    telemetry.appendChild(timing);
+  }
+
+  card.appendChild(telemetry);
+
+  const body = document.createElement('p');
+  body.className = 'response-body';
+  body.textContent = result.answer;
+  card.appendChild(body);
+
+  summary.appendChild(card);
 }

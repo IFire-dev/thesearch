@@ -3,7 +3,7 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
-const { askNvidiaPrimary, askNvidiaSecondary } = require('./ai');
+const { askNvidiaPrimary } = require('./ai');
 const { logSearch, readSearchesGroupedByIp } = require('./logger');
 const { checkCredentials, requireAdmin } = require('./auth');
 
@@ -68,12 +68,10 @@ function startServer() {
 
     // --- Search route ---
 
-    // Frontend calls GET /search?q=... and gets back { primary, secondary }.
-    // Both panels are NVIDIA now: primary retries Nemotron 3 Ultra (with
-    // a Nano fallback if Ultra's free capacity is maxed out), secondary
-    // is always Nano — this replaced Perplexity to avoid needing a paid
-    // key. (DuckDuckGo scraping was dropped earlier too: cloud host IPs
-    // like Render's get network-level blocked by DDG.)
+    // Frontend calls GET /search?q=... and gets back a single result:
+    // Nemotron 3 Ultra, retried up to 10 times, falling back to Nano
+    // if Ultra's free capacity stays maxed out. (Perplexity and
+    // DuckDuckGo scraping were both dropped earlier — see README.)
     webApp.get('/search', async (req, res) => {
       const q = req.query.q;
       if (!q) return res.json({});
@@ -81,15 +79,8 @@ function startServer() {
       logSearch(req.ip, q);
 
       try {
-        const [primaryResult, secondaryResult] = await Promise.allSettled([
-          askNvidiaPrimary(q),
-          askNvidiaSecondary(q)
-        ]);
-
-        res.json({
-          primary: primaryResult.status === 'fulfilled' ? primaryResult.value : { error: primaryResult.reason?.message },
-          secondary: secondaryResult.status === 'fulfilled' ? secondaryResult.value : { error: secondaryResult.reason?.message }
-        });
+        const result = await askNvidiaPrimary(q);
+        res.json(result);
       } catch (err) {
         console.error('Search failed:', err);
         res.status(500).json({ error: 'Search failed' });

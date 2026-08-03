@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin — Settings</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    #settings-app { max-width: 640px; margin: 0 auto; padding: 40px 20px; }
+    .admin-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; font-family: var(--mono); font-size: 13px; }
+    .admin-nav a { color: var(--text-dim); text-decoration: none; }
+    .admin-nav a:hover { color: var(--accent); }
+    .settings-section { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px; padding: 18px 20px; margin-bottom: 18px; }
+    .settings-section h2 { font-family: var(--mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); margin: 0 0 12px; }
+    .settings-section p.hint { font-size: 13px; color: var(--text-dim); margin: 6px 0 0; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; }
+    .toggle-btn { font-family: var(--mono); font-size: 13px; padding: 8px 14px; border: 1px solid var(--panel-border); border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; }
+    .toggle-btn.is-on { background: var(--fallback); border-color: var(--fallback); color: #1a1208; }
+    .ip-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--panel-border); font-family: var(--mono); font-size: 13px; }
+    .ip-row:last-child { border-bottom: none; }
+    .ip-meta { color: var(--text-dim); font-size: 11px; }
+    .ip-row button { font-family: var(--mono); font-size: 12px; padding: 5px 10px; border: 1px solid var(--panel-border); border-radius: 5px; background: transparent; color: var(--text); cursor: pointer; }
+    .ip-row button.approve { color: var(--success); border-color: var(--success); }
+    .ip-row button.revoke { color: var(--error); border-color: var(--error); }
+    .empty { color: var(--text-dim); font-size: 13px; font-family: var(--mono); }
+  </style>
+</head>
+<body>
+  <div id="settings-app">
+    <nav class="admin-nav">
+      <a href="/admin">&larr; search logs</a>
+      <a href="/admin/logout">log out</a>
+    </nav>
+
+    <h1 style="font-family:var(--mono); font-size:18px;">Settings</h1>
+
+    <div class="settings-section">
+      <h2>Maintenance mode</h2>
+      <div class="toggle-row">
+        <span id="maintenance-status">loading...</span>
+        <button id="maintenance-toggle" class="toggle-btn">toggle</button>
+      </div>
+      <p class="hint">When on, every visitor (including already-approved IPs) sees a "being updated" message instead of the site. Useful while you're redeploying.</p>
+    </div>
+
+    <div class="settings-section">
+      <h2>Pending access requests</h2>
+      <div id="pending-list"><span class="empty">loading...</span></div>
+      <p class="hint">Anyone who visits the site from a new IP shows up here automatically. Approve once and they won't need to again — until Render's free tier resets this (see README).</p>
+    </div>
+
+    <div class="settings-section">
+      <h2>Approved IPs</h2>
+      <div id="approved-list"><span class="empty">loading...</span></div>
+    </div>
+
+    <div class="settings-section">
+      <h2>Health check</h2>
+      <p class="hint">
+        Render pings <code>/health</code> to confirm the service is up.
+        Set this path under your Render service's
+        Settings &rarr; Health Checks tab. Docs:
+        <a href="https://render.com/docs/health-checks" target="_blank" rel="noopener noreferrer" style="color:var(--accent);">render.com/docs/health-checks</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    async function loadSettings() {
+      const res = await fetch('/admin/api/settings');
+      const data = await res.json();
+      renderMaintenance(data.maintenanceMode);
+      renderIpList('pending-list', data.pending, 'approve');
+      renderIpList('approved-list', data.approved, 'revoke');
+    }
+
+    function renderMaintenance(on) {
+      const status = document.getElementById('maintenance-status');
+      const btn = document.getElementById('maintenance-toggle');
+      status.textContent = on ? 'ON — site is showing the maintenance message' : 'OFF — site is live';
+      btn.classList.toggle('is-on', on);
+      btn.onclick = async () => {
+        const res = await fetch('/admin/api/settings/maintenance', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ enabled: !on })
+        });
+        const updated = await res.json();
+        renderMaintenance(updated.maintenanceMode);
+      };
+    }
+
+    function renderIpList(containerId, ips, action) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
+
+      if (!ips.length) {
+        container.innerHTML = '<span class="empty">none</span>';
+        return;
+      }
+
+      for (const entry of ips) {
+        const row = document.createElement('div');
+        row.className = 'ip-row';
+
+        const left = document.createElement('div');
+        left.innerHTML = `${entry.ip}<div class="ip-meta">last seen ${new Date(entry.lastSeen).toLocaleString()}</div>`;
+        row.appendChild(left);
+
+        const btn = document.createElement('button');
+        btn.className = action;
+        btn.textContent = action;
+        btn.onclick = async () => {
+          await fetch(`/admin/api/settings/${action}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ip: entry.ip })
+          });
+          loadSettings();
+        };
+        row.appendChild(btn);
+
+        container.appendChild(row);
+      }
+    }
+
+    loadSettings();
+  </script>
+</body>
+</html>

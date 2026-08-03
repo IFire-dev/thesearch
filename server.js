@@ -7,9 +7,27 @@ const { askNvidiaPrimary } = require('./ai');
 const { fetchLinkPreview } = require('./linkPreview');
 const { logSearch, readSearchesGroupedByIp } = require('./logger');
 const { checkCredentials, requireAdmin } = require('./auth');
+const {
+  isMaintenanceMode,
+  setMaintenanceMode,
+  recordVisit,
+  isApproved,
+  approveIp,
+  revokeIp,
+  listIps
+} = require('./siteState');
+const { maintenancePage, notAllowedPage } = require('./statusPages');
 
 const PREFERRED_PORT = process.env.PORT || 80;
 const FALLBACK_PORT = 8080;
+
+// Paths that always work regardless of maintenance mode or the IP
+// allowlist: admin routes (so you're never locked out of managing
+// the site from an unapproved IP) and the health check (Render's
+// load balancer hits this directly, unauthenticated — see README).
+function isExemptPath(reqPath) {
+  return reqPath.startsWith('/admin') || reqPath === '/health';
+}
 
 function startServer() {
   return new Promise((resolve) => {
@@ -17,7 +35,8 @@ function startServer() {
 
     webApp.set('trust proxy', true);
 
-    webApp.use(express.urlencoded({ extended: true }));
+    webApp.use(express.urlencoded({ extended: true })); // admin login form
+    webApp.use(express.json()); // admin settings API calls
     webApp.use(session({
       secret: process.env.SESSION_SECRET || 'change-me-in-.env',
       resave: false,
@@ -25,7 +44,39 @@ function startServer() {
       cookie: { maxAge: 24 * 60 * 60 * 1000, secure: 'auto' }
     }));
 
+    // Render's health check: plain, fast, unauthenticated. Configure
+    // this exact path ("/health") in Render's dashboard under your
+    // service's Settings > Health Checks.
+    webApp.get('/health', (req, res) => {
+      res.status(200).send('ok');
+    });
+
+    // --- Gate 1: maintenance mode. Blocks everyone, including
+    // already-approved IPs, except /admin/* and an already-logged-in
+    // admin session (so /admin/settings can still load its own
+    // /style.css etc. even before your IP is approved). ---
+    webApp.use((req, res, next) => {
+      if (isExemptPath(req.path) || req.session?.isAdmin) return next();
+      if (isMaintenanceMode()) {
+        return res.status(503).send(maintenancePage());
+      }
+      next();
+    });
+
+    // --- Gate 2: IP allowlist. First visit from a new IP auto-logs
+    // it as pending; only 'approved' IPs get through. ---
+    webApp.use((req, res, next) => {
+      if (isExemptPath(req.path) || req.session?.isAdmin) return next();
+      const status = recordVisit(req.ip);
+      if (status !== 'approved') {
+        return res.status(403).send(notAllowedPage());
+      }
+      next();
+    });
+
     webApp.use(express.static(path.join(__dirname, 'public')));
+
+    // --- Admin auth routes ---
 
     webApp.get('/admin/login', (req, res) => {
       const template = fs.readFileSync(path.join(__dirname, 'views', 'admin-login.html'), 'utf-8');
@@ -45,6 +96,8 @@ function startServer() {
       req.session.destroy(() => res.redirect('/admin/login'));
     });
 
+    // --- Admin dashboard (search log) ---
+
     webApp.get('/admin', requireAdmin, (req, res) => {
       res.sendFile(path.join(__dirname, 'views', 'admin-dashboard.html'));
     });
@@ -53,9 +106,40 @@ function startServer() {
       res.json(readSearchesGroupedByIp());
     });
 
-    // Frontend calls GET /search?q=... and gets back a single result:
-    // Nemotron 3 Ultra, retried up to 10 times, falling back to Nano
-    // if Ultra's free capacity stays maxed out.
+    // --- Admin settings (maintenance mode + IP approvals) ---
+
+    webApp.get('/admin/settings', requireAdmin, (req, res) => {
+      res.sendFile(path.join(__dirname, 'views', 'admin-settings.html'));
+    });
+
+    webApp.get('/admin/api/settings', requireAdmin, (req, res) => {
+      const ips = listIps();
+      res.json({
+        maintenanceMode: isMaintenanceMode(),
+        pending: ips.filter((i) => i.status === 'pending'),
+        approved: ips.filter((i) => i.status === 'approved')
+      });
+    });
+
+    webApp.post('/admin/api/settings/maintenance', requireAdmin, (req, res) => {
+      const enabled = setMaintenanceMode(!!req.body.enabled);
+      res.json({ maintenanceMode: enabled });
+    });
+
+    webApp.post('/admin/api/settings/approve', requireAdmin, (req, res) => {
+      if (!req.body.ip) return res.status(400).json({ error: 'missing ip' });
+      approveIp(req.body.ip);
+      res.json({ ok: true });
+    });
+
+    webApp.post('/admin/api/settings/revoke', requireAdmin, (req, res) => {
+      if (!req.body.ip) return res.status(400).json({ error: 'missing ip' });
+      revokeIp(req.body.ip);
+      res.json({ ok: true });
+    });
+
+    // --- Search route ---
+
     webApp.get('/search', async (req, res) => {
       const q = req.query.q;
       if (!q) return res.json({});

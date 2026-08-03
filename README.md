@@ -49,10 +49,36 @@ Binding to port 80 requires elevated privileges on Linux/macOS
   console (View > Toggle Developer Tools > Console in the Electron
   window, or your terminal).
 
+## Persistent storage (search logs & settings survive restarts)
+
+By default, search logs and site settings (maintenance mode, IP
+approvals) live in local files under `logs/`, which Render's free
+tier wipes on every restart/redeploy — so they'd keep resetting.
+
+To fix that, this app can use **Upstash Redis** instead — a separate
+free service (not part of Render) built for exactly this: genuinely
+free forever, no 30-day expiry (unlike Render's own free Postgres/Key
+Value, which I checked and neither actually solves this), works over
+plain HTTPS.
+
+**Setup (optional but recommended for Render):**
+1. Go to https://upstash.com and create a free account.
+2. Create a Redis database (any region close to your Render service's
+   region is fine).
+3. On the database's page, find the **REST API** section and copy
+   `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+4. Paste both into `.env` (or Render's Environment tab).
+
+If you skip this, everything still works exactly as before — it just
+resets on Render restarts, same as it did previously. This is
+transparent to the rest of the app: `logger.js` and `siteState.js`
+automatically use Upstash when it's configured and fall back to local
+files when it's not.
+
 ## Admin dashboard (search log by IP)
 
-Every search is logged to `logs/searches.jsonl` (created automatically)
-with the requester's IP, the query, and a timestamp. View it at:
+Every search is logged with the requester's IP, the query, and a
+timestamp. View it at:
 
 ```
 http://localhost/admin
@@ -112,12 +138,11 @@ on — until the state resets (see the Render limitation below).
 You'll need to approve your own IP the first time too, via
 `/admin/login` → `/admin/settings` (that path is never gated).
 
-**Important limitation on Render's free tier:** both of these are
-stored in `logs/site-state.json` on local disk, which is wiped on
-every restart/redeploy — same as the search log. So approvals and the
-maintenance toggle won't survive Render's free-tier restarts reliably;
-expect to occasionally re-approve people. Render's paid Starter tier
-adds a persistent disk if you want this to actually stick.
+**Persistence:** these are stored via Upstash if you've set it up
+(see "Persistent storage" above) — in which case approvals and the
+maintenance toggle genuinely survive Render restarts. Without
+Upstash, they're stored in `logs/site-state.json` on local disk and
+will reset on Render's free-tier restarts, same as the search log.
 
 ## URL shortcut
 
@@ -141,7 +166,10 @@ Express server headlessly (no window), which is what you'll deploy.
 4. Add `NVIDIA_API_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, and
    `SESSION_SECRET` under the service's **Environment** tab in the
    dashboard — not as a committed `.env` file. Don't set `PORT`;
-   Render sets that itself.
+   Render sets that itself. Also add `UPSTASH_REDIS_REST_URL` and
+   `UPSTASH_REDIS_REST_TOKEN` here if you want search logs and
+   settings to survive restarts (see "Persistent storage" above) —
+   otherwise skip them and it'll work the same as before.
 5. Set the health check path to `/health` under Settings → Health Checks.
 6. Render gives you an HTTPS URL like `your-app.onrender.com` — no
    ngrok, no port 80 to worry about, no PC needed.
@@ -150,12 +178,12 @@ Two real limitations of Render's free tier worth knowing before you
 commit to it (current as of mid-2026):
 - **Cold starts**: free web services spin down after 15 minutes with
   no traffic and take roughly 30–60 seconds to wake back up on the
-  next request.
-- **No persistent disk on the free tier**: everything in `logs/`
-  (search log, maintenance mode, IP approvals) is wiped on every
-  restart/redeploy — treat it all as rolling/temporary, not permanent
-  storage. Render's paid Starter tier ($7/mo) adds persistent disks
-  if you want it to actually accumulate.
+  next request. Upstash doesn't change this — it only fixes data
+  resetting, not the spin-down itself.
+- **No persistent disk on the free tier**: without Upstash configured,
+  everything in `logs/` (search log, maintenance mode, IP approvals)
+  is wiped on every restart/redeploy. With Upstash configured, this
+  no longer applies — that's the whole point of setting it up.
 
 ## How it works
 
@@ -163,19 +191,24 @@ commit to it (current as of mid-2026):
 - `server.js` — Express server. Routes: `/search` (Nemotron 3 Ultra
   with retry + Nano fallback), `/preview` (link preview cards),
   `/health` (Render health check), `/admin/*` (auth, dashboard,
-  settings). Also applies the maintenance-mode and IP-allowlist gates
-  to everything except `/admin` and `/health`.
+  settings). Applies the maintenance-mode and IP-allowlist gates only
+  to `/`, `/search`, and `/preview` — static assets and `/admin/*`
+  skip them (see `GATED_PATHS`), which also means each check costs
+  one Upstash call per pageview, not one per file loaded.
+- `upstash.js` — thin REST client for Upstash Redis, used by
+  `logger.js` and `siteState.js` when configured.
 - `ai.js` — the NVIDIA API client: retry logic, fallback, and the
   timing/attempt telemetry the UI displays.
 - `linkPreview.js` — fetches OpenGraph/title/description for URLs
   mentioned in an answer, with guards against being used to probe
   internal/private addresses (relevant since `/preview` is public).
-- `siteState.js` — maintenance-mode flag and the IP allowlist,
-  persisted to `logs/site-state.json`.
+- `siteState.js` — maintenance-mode flag and the IP allowlist. Uses
+  Upstash if configured, otherwise `logs/site-state.json`.
 - `statusPages.js` — the two visitor-facing messages (maintenance /
   not-allowed), self-contained HTML so they don't depend on gated
   static assets.
-- `logger.js` — writes/reads the search log (`logs/searches.jsonl`).
+- `logger.js` — writes/reads the search log. Uses Upstash if
+  configured, otherwise `logs/searches.jsonl`.
 - `auth.js` — admin login check and route guard.
 - `views/` — admin login, dashboard, and settings pages (not served
   as static files, so they're only reachable through the

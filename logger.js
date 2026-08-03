@@ -1,26 +1,60 @@
 const fs = require('fs');
 const path = require('path');
+const { redisCommand, isConfigured } = require('./upstash');
 
 const LOG_FILE = path.join(__dirname, 'logs', 'searches.jsonl');
+const REDIS_KEY = 'searches';
+const MAX_ENTRIES = 2000; // keeps well within Upstash's free storage cap
 
 function ensureLogDir() {
   const dir = path.dirname(LOG_FILE);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-// One JSON object per line (JSON Lines), appended as searches come in.
-// Avoids the read-modify-write race a single JSON array would have if
-// two searches land close together.
-function logSearch(ip, query) {
-  ensureLogDir();
+// Logs one search. Uses Upstash Redis if configured (survives Render
+// restarts/redeploys) — otherwise falls back to the local file, same
+// as before (fine for local/Electron use, but resets on Render).
+async function logSearch(ip, query) {
   const entry = { timestamp: new Date().toISOString(), ip, query };
+
+  if (isConfigured()) {
+    try {
+      await redisCommand('RPUSH', REDIS_KEY, JSON.stringify(entry));
+      await redisCommand('LTRIM', REDIS_KEY, -MAX_ENTRIES, -1);
+      return;
+    } catch (err) {
+      console.error('Failed to write search log to Upstash:', err.message);
+      // fall through to the local file as a backup
+    }
+  }
+
+  ensureLogDir();
   fs.appendFile(LOG_FILE, JSON.stringify(entry) + '\n', (err) => {
     if (err) console.error('Failed to write search log:', err);
   });
 }
 
 // Returns all logged searches, most recent first.
-function readSearches() {
+async function readSearches() {
+  if (isConfigured()) {
+    try {
+      const raw = await redisCommand('LRANGE', REDIS_KEY, 0, -1);
+      return (raw || [])
+        .map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean)
+        .reverse();
+    } catch (err) {
+      console.error('Failed to read search log from Upstash:', err.message);
+      // fall through to the local file
+    }
+  }
+
   ensureLogDir();
   if (!fs.existsSync(LOG_FILE)) return [];
 
@@ -39,8 +73,8 @@ function readSearches() {
 
 // Groups logged searches by IP for the admin dashboard: most recent
 // search first within each IP, most recently active IP first overall.
-function readSearchesGroupedByIp() {
-  const logs = readSearches(); // already newest-first
+async function readSearchesGroupedByIp() {
+  const logs = await readSearches(); // already newest-first
 
   const groups = new Map();
   for (const entry of logs) {

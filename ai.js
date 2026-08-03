@@ -32,7 +32,7 @@ async function callNvidiaModel(model, query) {
         // this short. Turning it off keeps `content` populated.
         chat_template_kwargs: { enable_thinking: false },
         messages: [
-          { role: 'user', content: `Give a short, direct answer to this search query. A sentence or two, no preamble: ${query}` }
+          { role: 'user', content: `Answer this search query directly in a sentence or two, no preamble. Then on its own line, give the single most relevant, real website URL for this topic, written as a plain URL (e.g. https://example.com) — not markdown, not in parentheses. Only include a URL you're confident actually exists; if none is clearly relevant, skip that line. Query: ${query}` }
         ]
       })
     });
